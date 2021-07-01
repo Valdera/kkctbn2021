@@ -12,6 +12,8 @@ from kkctbn2021.msg import AutoControl, Config, ObjectCount
 from kkctbn2021.cfg import *
 
 data = None
+
+# Minimum area for the object to be defined as buoy in units of pixel square
 MIN_AREA = 600
 
 # Configure the limit of each color in term of HSV
