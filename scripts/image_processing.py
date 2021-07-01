@@ -11,12 +11,17 @@ from std_msgs.msg import Float64
 from kkctbn2021.msg import AutoControl, Config, ObjectCount
 from kkctbn2021.cfg import *
 
+# Define data as none so it can be filled later
 data = None
 
 # Minimum area for the object to be defined as buoy in units of pixel square
 MIN_AREA = 600
 
-# Configure the limit of each color in term of HSV
+############
+############## Upper/Lower boundary for defined color ###############
+
+# Configure the (default) limit of each color in term of HSV
+# This code only run once
 cfg = Config()
 cfg.red_low_hue = 110
 cfg.red_low_sat = 56
@@ -36,13 +41,20 @@ cfg.brightness = 0
 cfg.contrast = 0
 cfg.gamma = 0
 
+####################################################################
+##########
+
 # Configure AutoControl
+# This code only run once, obtaining value from .msg object
 auto_ctrl = AutoControl()
 auto_ctrl.state = AutoControl.AVOID_RED_AND_GREEN
 
 # define nothing
 def nothing(x):
     pass
+
+######################GLOBAL SETTINGS FOR GUI#######################
+####################################################################
 
 # If there is a callback,
 # set the var to the global var cfg
@@ -56,6 +68,11 @@ def auto_control_callback(msg):
     global auto_ctrl
     auto_ctrl.state = msg.state
 
+####################################################################
+####################################################################
+
+######################## GAMMA AUTOCONFIGURATION ##########################
+
 # Make it if the environment is dark, the image will become brighter
 def adjust_gamma(img, gamma=1.0):
     # Build a lookup table mapping the pixel values [0, 255]
@@ -66,7 +83,11 @@ def adjust_gamma(img, gamma=1.0):
     # apply gamma correction using the lookup table
     return cv.LUT(img, table)
 
+###########################################################################
+
+# Initialize ROS
 if __name__ == '__main__':
+
     # Initialize image_processing node
     rospy.init_node('image_processing', anonymous=True)
 
@@ -78,25 +99,35 @@ if __name__ == '__main__':
     green_mask_publisher = rospy.Publisher('/makarax/image/mask/green/compressed', CompressedImage, queue_size=8)
 
     # Set Subscriber nodes
+    # Whenever data received from the topic, it will run specific functions
     image_subscriber = rospy.Subscriber("/makarax/image", Image, nothing)
     cfg_subscriber = rospy.Subscriber("/makarax/config", Config, config_callback)
     auto_ctrl_subscriber = rospy.Subscriber("/makarax/auto_control", AutoControl, auto_control_callback)
 
+    # Loop while rospy is online
     while not rospy.is_shutdown():
+
+        #Code will wait here until this node receive an image from receiver node
         data = rospy.wait_for_message('/makarax/image', Image)
 
         # do some stuff
+	# define/redefine some variables
         count_red = 0
         count_green = 0
+
+	# To make the image readable by opencv
         bridge = CvBridge()
         ori = bridge.imgmsg_to_cv2(data)
 
+	# Load variables from GUI
         brightness = cfg.brightness
         contrast = cfg.contrast
         gamma = cfg.gamma
 
+	# Making a copy of the original image that come from the other node, new image is named frame
         frame = ori.copy()
 
+	# Gamma checker
         if gamma == 0:
             pass
         else:
@@ -108,18 +139,27 @@ if __name__ == '__main__':
         frame = numpy.clip(frame, 0, 255)
         frame = numpy.uint8(frame)
 
-
+	# Define height and width from the frame (Removing the layer value because it isn't needed)
         height, width = frame.shape[:2]
 
+	# Convert the image coloring to BGR2HSV
         hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+
+	# Blur the image a little bit to smoothen the edges
         hsv = cv.GaussianBlur(hsv, (5, 5), 1)
-        kernel = numpy.ones((3, 3), numpy.uint8)
+
+	# In case we want to use the average algorithm to smoothen the image
+        #kernel = numpy.ones((3, 3), numpy.uint8)
 
         # Set Range of Interest (ROI)
+	# Only detect buoys that detected on the lower part of the image, value adjusted from another node
         roi_y = cfg.roi_y
+
+	# Draw a line of ROI in the GUI
         cv.line(frame, (width, roi_y), (0, roi_y), (255, 255, 0), 2)
 
         # Set up Red HSV
+	# Value is taken from GUI
         red_low_hue = cfg.red_low_hue
         red_low_sat = cfg.red_low_sat
         red_low_val = cfg.red_low_val
@@ -160,6 +200,7 @@ if __name__ == '__main__':
                         pos_min_y = y
 
         # Set up Green HSV
+	# Value is taken from GUI
         green_low_hue = cfg.green_low_hue
         green_low_sat = cfg.green_low_sat
         green_low_val = cfg.green_low_val
@@ -172,7 +213,7 @@ if __name__ == '__main__':
 
         green_mask = cv.inRange(hsv, low_green, high_green)
 
-        # Detect Countours
+        # Detect Green Countours
         contours, _ = cv.findContours(green_mask, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE)[-2:]
         max_x = 0
         pos_max_y = 0
